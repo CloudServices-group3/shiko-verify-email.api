@@ -1,12 +1,14 @@
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Caching.Memory;
-using System.Security.Cryptography;
 using VerifyEmail.API.Messages;
+using VerifyEmail.API.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.AddMemoryCache(); // Add Memory cache to be used for TEMP storage in Client.
+
+builder.Services.AddScoped<EmailVerificationService>();
 
 // Register a singleton ServiceBusSender used to send messages to a queue in Azure Servvice Bus.
 builder.Services.AddSingleton(sp =>
@@ -31,12 +33,12 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 // Send verification code.
-app.MapPost("/send-code", async (string email, ServiceBusSender sender, IMemoryCache cache) => 
+app.MapPost("/send-code", async (string email, ServiceBusSender sender, IMemoryCache cache, EmailVerificationService service) => 
 {
-    if (string.IsNullOrWhiteSpace(email))
-        return Results.BadRequest("An Email address must be provided.");
+    if (!service.ValidateEmail(email))
+        return Results.BadRequest("Invalid email");
 
-    var code = RandomNumberGenerator.GetInt32(100000, 1_000_000).ToString(); // Creates a random number between 100000 and 999999.
+    var code = service.GenerateCode();
      
     cache.Set($"verify:{email}", code, TimeSpan.FromMinutes(5)); // Save Email, code and expiration time in cache. After 5min the code expires.
 
@@ -50,18 +52,23 @@ app.MapPost("/send-code", async (string email, ServiceBusSender sender, IMemoryC
 });
 
 // Verify code.
-app.MapPost("/verify-code", async (string email, string code, IMemoryCache cache) =>
+app.MapPost("/verify-code", async (string email, string code, IMemoryCache cache, EmailVerificationService service) =>
 {
-    if (string.IsNullOrWhiteSpace(email))
-        return Results.BadRequest("An Email address must be provided.");
+    if (!service.ValidateEmail(email))
+        return Results.BadRequest("Invalid email");
 
     if (string.IsNullOrWhiteSpace(code))
         return Results.BadRequest("A verification code must be provided.");
 
-    if (!cache.TryGetValue($"verify:{email}", out string? storedCode)) // Check -> Email in cache? , Fetch stored code, compare with user input.
+    if (!cache.TryGetValue($"verify:{email}", out string? storedCode)) // Check -> Email in cache? , Fetch stored code.
         return Results.Unauthorized();
 
-    if (storedCode != code)
+    if (string.IsNullOrWhiteSpace(storedCode))
+        return Results.Unauthorized();
+
+    var results = service.CompareCodes(storedCode, code);
+
+    if (!service.CompareCodes(storedCode, code))
         return Results.Unauthorized();
 
     // If verify is success = remove from cache.
@@ -71,14 +78,14 @@ app.MapPost("/verify-code", async (string email, string code, IMemoryCache cache
     
 });
 
-app.MapPost("/resend-code", async (string email, ServiceBusSender sender, IMemoryCache cache) =>
+app.MapPost("/resend-code", async (string email, ServiceBusSender sender, IMemoryCache cache, EmailVerificationService service) =>
 {
-    if (string.IsNullOrWhiteSpace(email))
-        return Results.BadRequest("An Email address must be provided.");
+    if (!service.ValidateEmail(email))
+        return Results.BadRequest("Invalid email");
 
     cache.Remove($"verify:{email}"); // Deletes the cached object associated with the email before creating a new one.
 
-    var code = RandomNumberGenerator.GetInt32(100000, 1_000_000).ToString();
+    var code = service.GenerateCode();
 
     cache.Set($"verify:{email}", code, TimeSpan.FromMinutes(5));
 
