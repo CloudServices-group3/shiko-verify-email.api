@@ -1,4 +1,4 @@
 <Solution>
-  <Project Path="Tests/VerifyEmail.Tests.csproj" />
+  <Project Path="verify-email-tests/verify-email-tests.csproj" Id="ae6ef0e8-4f21-45cc-a441-f4e0efc8888e" />
   <Project Path="VerifyEmail.API/VerifyEmail.API.csproj" />
 </Solution>
