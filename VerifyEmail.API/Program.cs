@@ -1,5 +1,6 @@
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Caching.Memory;
+using Scalar.AspNetCore;
 using VerifyEmail.API.CORS;
 using VerifyEmail.API.Messages;
 using VerifyEmail.API.Services;
@@ -30,6 +31,12 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    app.MapScalarApiReference(options =>
+    {
+        options.Title = "Verify Email API";
+        options.Theme = ScalarTheme.Default;
+        options.DefaultHttpClient = new(ScalarTarget.CSharp, ScalarClient.HttpClient);
+    });
 }
 
 app.UseHttpsRedirection();
