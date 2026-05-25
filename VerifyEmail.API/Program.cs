@@ -13,17 +13,22 @@ builder.Services.AddCorsConfiguration();
 
 builder.Services.AddScoped<EmailVerificationService>();
 
-// Register a singleton ServiceBusSender used to send messages to a queue in Azure Servvice Bus.
+// Register two ServiceBusSenders used to send messages to two separate queues in Azure Servvice Bus.
 builder.Services.AddSingleton(sp =>
 {
     var config = sp.GetRequiredService<IConfiguration>();
     var connectionString = config["ServiceBus:ConnectionString"];
 
-    var client = new ServiceBusClient(connectionString); 
+    var client = new ServiceBusClient(connectionString);
 
-    var queueName = config["ServiceBus:QueueName"];
+    var emailSender = client.CreateSender(config["ServiceBus:EmailQueueName"]);
+    var userSender = client.CreateSender(config["ServiceBus:UserQueueName"]);
 
-    return client.CreateSender(queueName); 
+    return new Dictionary<string, ServiceBusSender>
+    {
+        ["email"] = emailSender,
+        ["user"] = userSender
+    };
 });
 
 var app = builder.Build();
@@ -44,7 +49,7 @@ app.UseHttpsRedirection();
 app.UseCors("Frontend");
 
 // Send verification code.
-app.MapPost("/send-code", async (string email, ServiceBusSender sender, IMemoryCache cache, EmailVerificationService service) => 
+app.MapPost("/send-code", async (string email, Dictionary<string, ServiceBusSender> senders, IMemoryCache cache, EmailVerificationService service) => 
 {
     if (!service.ValidateEmail(email))
         return Results.BadRequest("Invalid email");
@@ -57,13 +62,13 @@ app.MapPost("/send-code", async (string email, ServiceBusSender sender, IMemoryC
 
     var sbMessage = new ServiceBusMessage(BinaryData.FromObjectAsJson(message)); // Converts the message to JSON and wraps it into binarydata to the service bus.
 
-    await sender.SendMessageAsync(sbMessage); // Sends the message to the service bus.
+    await senders["email"].SendMessageAsync(sbMessage); // Sends the message to the service bus.
 
     return Results.Ok();
 });
 
 // Verify code.
-app.MapPost("/verify-code", async (string email, string code, IMemoryCache cache, EmailVerificationService service) =>
+app.MapPost("/verify-code", async (string email, string code, Dictionary<string, ServiceBusSender> senders, IMemoryCache cache, EmailVerificationService service) =>
 {
     if (!service.ValidateEmail(email))
         return Results.BadRequest("Invalid email");
@@ -85,11 +90,15 @@ app.MapPost("/verify-code", async (string email, string code, IMemoryCache cache
     // If verify is success = remove from cache.
     cache.Remove($"verify:{email}");
 
+    // Creates an anonymous object and sends it to the service bus user queue.
+    await senders["user"].SendMessageAsync(
+        new ServiceBusMessage(BinaryData.FromObjectAsJson(new { Email = email, Type = "EmailVerified" })));
+
     return Results.Ok(new { verified = true });
     
 });
 
-app.MapPost("/resend-code", async (string email, ServiceBusSender sender, IMemoryCache cache, EmailVerificationService service) =>
+app.MapPost("/resend-code", async (string email, Dictionary<string, ServiceBusSender> senders, IMemoryCache cache, EmailVerificationService service) =>
 {
     if (!service.ValidateEmail(email))
         return Results.BadRequest("Invalid email");
@@ -104,7 +113,7 @@ app.MapPost("/resend-code", async (string email, ServiceBusSender sender, IMemor
 
     var sbMessage = new ServiceBusMessage(BinaryData.FromObjectAsJson(message));
 
-    await sender.SendMessageAsync(sbMessage);
+    await senders["email"].SendMessageAsync(sbMessage);
 
     return Results.Ok();
 });
