@@ -1,5 +1,6 @@
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Caching.Memory;
+using VerifyEmail.API.CORS;
 using VerifyEmail.API.Messages;
 using VerifyEmail.API.Services;
 
@@ -7,6 +8,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.AddMemoryCache(); // Add Memory cache to be used for TEMP storage in Client.
+builder.Services.AddCorsConfiguration();
 
 builder.Services.AddScoped<EmailVerificationService>();
 
@@ -31,6 +33,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseCors("Frontend");
 
 // Send verification code.
 app.MapPost("/send-code", async (string email, ServiceBusSender sender, IMemoryCache cache, EmailVerificationService service) => 
