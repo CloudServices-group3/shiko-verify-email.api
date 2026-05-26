@@ -9,7 +9,7 @@ public static class CorsConfiguration
             options.AddPolicy("Frontend", policy =>
             {
                 policy
-                    .WithOrigins("http://localhost:3000", "https://localhost:3000")
+                    .WithOrigins("http://localhost:3000", "https://localhost:3000", "https://shiko-email-verification-api.azurewebsites.net")
                     .AllowAnyHeader()
                     .AllowAnyMethod()
                     .AllowCredentials();
